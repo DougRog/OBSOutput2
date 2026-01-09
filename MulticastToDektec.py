@@ -208,10 +208,10 @@ def build_ffmpeg_command(cfg):
     """Build FFmpeg command for multicast to Dektec output"""
     name = cfg.get("name", f"UDP{cfg['udp_port']}->DT{cfg['serial']}:{cfg['output']}")
 
-    # Multicast input with socket reuse for clean restarts
+    # Multicast input with aggressive buffering to prevent black flashes
     multicast_input = (
         f"udp://@0.0.0.0:{cfg['udp_port']}"
-        f"?pkt_size=1316&buffer_size=10000000&fifo_size=1000000"
+        f"?pkt_size=1316&buffer_size=212992000&fifo_size=50000000"
         f"&overrun_nonfatal=1&reuse=1"
     )
 
@@ -269,10 +269,12 @@ def build_ffmpeg_command(cfg):
             FFMPEG_PATH,
             "-hide_banner", "-nostats", "-loglevel", "level+info",
 
-            # Input settings
-            "-thread_queue_size", "2048",
-            "-probesize", "5M",
-            "-analyzeduration", "5M",
+            # Input settings with error tolerance and timestamp regeneration
+            "-fflags", "+genpts+igndts",
+            "-err_detect", "ignore_err",
+            "-thread_queue_size", "4096",
+            "-probesize", "10M",
+            "-analyzeduration", "10M",
             "-i", multicast_input,
 
             # Stream mapping
@@ -282,8 +284,9 @@ def build_ffmpeg_command(cfg):
             # Video filter
             "-vf", vf_graph,
 
-            # Video encoding
+            # Video encoding with constant frame rate (prevents black flashes)
             "-r", frame_rate,
+            "-vsync", "cfr",
             "-c:v", "wrapped_avframe",
 
             # Color settings
@@ -292,13 +295,15 @@ def build_ffmpeg_command(cfg):
             "-color_trc", "bt709",
             "-color_range", "tv",
 
-            # Audio settings
+            # Audio settings with sync
             "-ar", "48000",
             "-ac", "2",
             "-sample_fmt", "s32",
             "-c:a", "pcm_s24le",
+            "-async", "1",
 
-            # Output
+            # Output with minimal delay
+            "-max_delay", "0",
             "-f", "dektec",
             dektec_output
         ]
