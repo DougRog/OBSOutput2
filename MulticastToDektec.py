@@ -223,32 +223,28 @@ def build_ffmpeg_command(cfg):
     pixel_format = cfg.get("pixel_format", "yuv422p10le")
 
     # Build video filter chain based on format
+    # Use simpler, more reliable filters to prevent glitching
     if "1080i" in output_format:
-        # For interlaced output, try multiple filter options
+        # For interlaced output - minimal processing to avoid glitches
         vf_options = [
-            # Option 1: tinterlace (requires GPL build)
-            "scale=1920:1080:flags=bicubic,setsar=1,format=yuv422p10le,"
-            "tinterlace=mode=interlacex2:flags=vlpf,fieldorder=tff,format=uyvy422",
+            # Option 1: Direct passthrough with just format conversion
+            "fps=fps=60000/1001,scale=1920:1080:flags=fast_bilinear,setsar=1,format=uyvy422,setpts=PTS-STARTPTS",
 
-            # Option 2: interlace filter
-            "scale=1920:1080:flags=bicubic,setsar=1,format=yuv422p10le,"
-            "interlace=scan=tff:lowpass=1,fieldorder=tff,format=uyvy422",
-
-            # Option 3: Just set field order (fallback)
-            "scale=1920:1080:flags=bicubic,setsar=1,fieldorder=tff,format=uyvy422"
+            # Option 2: With field order (if source needs it)
+            "fps=fps=60000/1001,scale=1920:1080:flags=fast_bilinear,setsar=1,fieldorder=tff,format=uyvy422,setpts=PTS-STARTPTS",
         ]
     elif "1080p" in output_format:
         vf_options = [
-            "scale=1920:1080:flags=bicubic,setsar=1,format=uyvy422"
+            "fps=fps=60000/1001,scale=1920:1080:flags=fast_bilinear,setsar=1,format=uyvy422,setpts=PTS-STARTPTS"
         ]
     elif "720p" in output_format:
         vf_options = [
-            "scale=1280:720:flags=bicubic,setsar=1,format=uyvy422"
+            "fps=fps=60000/1001,scale=1280:720:flags=fast_bilinear,setsar=1,format=uyvy422,setpts=PTS-STARTPTS"
         ]
     else:
         # Default to 1080i
         vf_options = [
-            "scale=1920:1080:flags=bicubic,setsar=1,fieldorder=tff,format=uyvy422"
+            "fps=fps=60000/1001,scale=1920:1080:flags=fast_bilinear,setsar=1,format=uyvy422,setpts=PTS-STARTPTS"
         ]
 
     # Determine frame rate
@@ -269,24 +265,24 @@ def build_ffmpeg_command(cfg):
             FFMPEG_PATH,
             "-hide_banner", "-nostats", "-loglevel", "level+info",
 
-            # Input settings with error tolerance and timestamp regeneration
-            "-fflags", "+genpts+igndts",
+            # Input settings - fast processing with minimal delay
+            "-fflags", "+genpts+igndts+discardcorrupt",
             "-err_detect", "ignore_err",
             "-thread_queue_size", "4096",
             "-probesize", "10M",
-            "-analyzeduration", "10M",
+            "-analyzeduration", "5M",
+            "-max_delay", "500000",
             "-i", multicast_input,
 
             # Stream mapping
             "-map", "0:v:0",
             "-map", "0:a:0?",  # Optional audio
 
-            # Video filter
+            # Video filter (fps filter handles frame rate, so no -r needed)
             "-vf", vf_graph,
 
-            # Video encoding with constant frame rate (prevents black flashes)
-            "-r", frame_rate,
-            "-vsync", "cfr",
+            # Video encoding - no frame rate here since fps filter handles it
+            "-vsync", "1",  # Use CFR but let fps filter control timing
             "-c:v", "wrapped_avframe",
 
             # Color settings
@@ -295,15 +291,14 @@ def build_ffmpeg_command(cfg):
             "-color_trc", "bt709",
             "-color_range", "tv",
 
-            # Audio settings with sync
+            # Audio settings with proper resampling
             "-ar", "48000",
             "-ac", "2",
             "-sample_fmt", "s32",
             "-c:a", "pcm_s24le",
-            "-async", "1",
+            "-af", "aresample=async=1:min_hard_comp=0.100000:first_pts=0",
 
-            # Output with minimal delay
-            "-max_delay", "0",
+            # Output format
             "-f", "dektec",
             dektec_output
         ]
