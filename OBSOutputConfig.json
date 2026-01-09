@@ -1,0 +1,12 @@
+{
+  "outputs": [
+    {
+      "name": "ENN Weather Wheel",
+      "udp_port": 9001,
+      "serial": 2178009679,
+      "output": 2,
+      "format": "1080i59.94",
+      "pixel_format": "yuv422p10le"
+    }
+  ]
+}
